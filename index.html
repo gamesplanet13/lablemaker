@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Multi Label Generator</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #f4f4f4;
+      padding: 100px 20px 60px;
+    }
+    .label-block {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      gap: 10px;
+      margin-bottom: 20px;
+    }
+    .label-wrapper {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+    textarea.label-input {
+      width: 100%;
+      height: 220px;
+      font-family: monospace;
+      padding: 10px;
+    }
+    .label-actions {
+      display: flex;
+      gap: 6px;
+      justify-content: space-between;
+    }
+    .label-actions button {
+      font-size: 12px;
+      padding: 4px 6px;
+    }
+    .floating-buttons {
+      position: fixed;
+      top: 10px;
+      left: 10px;
+      right: 10px;
+      background: white;
+      padding: 10px;
+      z-index: 1000;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+      justify-content: space-between;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+    }
+    .floating-buttons button {
+      padding: 6px 12px;
+      font-size: 14px;
+      background: #007bff;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+    .label-count {
+      font-size: 14px;
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+<div class="floating-buttons">
+  <div>
+    <button onclick="generatePDF('save')">📄 PDF</button>
+    <button onclick="generatePDF('print')">🖨️ Print</button>
+    <button onclick="addNewTextarea()">➕ Add</button>
+  </div>
+  <div class="label-count" id="labelCount">Total Labels: 0</div>
+</div>
+
+<div class="label-block" id="labelContainer"></div>
+
+<script>
+window.onload = () => {
+  window.jsPDF = window.jspdf.jsPDF;
+  for (let i = 0; i < 8; i++) addNewTextarea();
+};
+
+function addNewTextarea() {
+  const container = document.getElementById("labelContainer");
+  const wrapper = document.createElement("div");
+  wrapper.className = "label-wrapper";
+  wrapper.innerHTML = `
+    <textarea class="label-input" oninput="updateLabelCount()"></textarea>
+    <div class="label-actions">
+      <button onclick="clearLabel(this)">❌ Clear</button>
+      <button onclick="deleteLabel(this)">🗑️ Delete</button>
+    </div>
+  `;
+  container.appendChild(wrapper);
+  updateLabelCount();
+}
+
+function clearLabel(btn) {
+  btn.closest(".label-wrapper").querySelector(".label-input").value = "";
+  updateLabelCount();
+}
+
+function deleteLabel(btn) {
+  btn.closest(".label-wrapper").remove();
+  updateLabelCount();
+}
+
+function updateLabelCount() {
+  const total = document.querySelectorAll(".label-input").length;
+  const filled = Array.from(document.querySelectorAll(".label-input")).filter(input => input.value.trim() !== "").length;
+  document.getElementById("labelCount").innerText = `Total Labels: ${total} | Filled: ${filled}`;
+}
+
+function capitalizeWords(str) {
+  return str.replace(/\w\S*/g, (txt) => txt.charAt(0).toUpperCase() + txt.substr(1).toLowerCase());
+}
+
+function generatePDF(mode = 'save') {
+  const inputs = Array.from(document.querySelectorAll(".label-input"));
+  const filledInputs = inputs.map(i => i.value.trim()).filter(Boolean);
+  if (!filledInputs.length) return alert("Please fill at least one label");
+
+  const doc = new jsPDF({ unit: "mm", format: "a4" });
+  const cols = 2, rows = 4;
+  const labelWidth = 210 / cols;
+  const labelHeight = 297 / rows;
+  const today = new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+
+  filledInputs.forEach((input, idx) => {
+    if (idx > 0 && idx % (cols * rows) === 0) doc.addPage();
+    const col = idx % cols;
+    const row = Math.floor((idx % (cols * rows)) / cols);
+    const x = col * labelWidth;
+    const y = row * labelHeight;
+
+    const lines = input.split(/\n|\r/);
+    const data = {};
+    lines.forEach((line, i) => {
+      const parts = line.split(":");
+      if (parts.length > 1) {
+        const key = parts[0].trim();
+        let value = parts.slice(1).join(":").trim();
+        if (!["Product", "Variant", "Base Price", "Discount Applied", "Amount paid"].includes(key)) {
+          value = capitalizeWords(value);
+        }
+        data[key] = value;
+      } else if (i === 0 && !data["Name"]) {
+        data["Name"] = line.trim();
+      }
+    });
+
+    if (data["Alt. Mobile"]) data["Alt Mobile"] = data["Alt. Mobile"];
+    if (data["City"]) data["District/City"] = data["City"];
+    if (data["Product name"]) data["Product"] = data["Product name"];
+    if (data["GB"]) data["Variant"] = (data["Variant"] || "") + ` ${data["GB"]}GB`;
+    if (data["Amount to be paid"]) data["Amount paid"] = data["Amount to be paid"];
+    
+// Convert all keys to lowercase for consistent access
+const normalizedData = {};
+Object.keys(data).forEach(k => {
+  normalizedData[k.trim().toLowerCase()] = data[k];
+});
+
+function getField(possibleKeys) {
+  for (let key of possibleKeys) {
+    const lowerKey = key.toLowerCase();
+    if (normalizedData[lowerKey]) return normalizedData[lowerKey];
+  }
+  return "";
+}
+
+// Standardized field assignments (case-insensitive)
+data["Alt Mobile"]   = getField(["Alt. Mobile", "Alt mobile", "Alt, mobile", "AltMobile"]);
+data["Mobile"]       = getField(["Mobile", "Mob"]);
+data["Email"]        = getField(["Email", "Mail"]);
+data["District/City"]= getField(["City", "City/District", "District/City"]);
+data["Pincode"]      = getField(["Pincode", "Pin", "PIN", "Pincod", "Postal Code", "Pin Code"]);
+data["Address"]      = getField(["Address", "Complete Address"]);
+data["Product"]      = getField(["Product Name", "Product"]);
+data["Variant"]      = getField(["Variant", "GB (if available)"]);
+data["Amount paid"]  = getField(["Amount Paid", "Paid Amount", "Amount"]);
+data["Base Price"]   = getField(["Base Price", "Price"]);
+data["Discount Applied"] = getField(["Discount", "Discount Applied"]);
+data["Order ID"]     = getField(["Order ID", "OrderId", "Order Id"]);
+data["Name"]         = getField(["Name", "Customer Name", "Customer"]);
+
+// Append GB to Variant if available
+if (normalizedData["gb"]) {
+  data["Variant"] = (data["Variant"] || "") + ` ${normalizedData["gb"]}GB`;
+}
+
+// Fallback to first line as Name if Name is still missing
+if (!data["Name"] && lines.length > 0) {
+  data["Name"] = lines[0].trim();
+}
+
+
+// Apply default values if missing
+if (!data["Product"]) data["Product"] = "Game Product";
+if (!data["Amount paid"]) data["Amount paid"] = "Rs.9999";
+
+// Required fields check
+const requiredFields = ["Name", "Mobile", "Pincode", "Address"];
+const missingFields = requiredFields.filter(field => !data[field] || data[field].trim() === "");
+if (missingFields.length > 0) {
+  const alertDiv = document.createElement("div");
+  alertDiv.textContent = "Missing fields: " + missingFields.join(", ");
+  alertDiv.style.position = "fixed";
+  alertDiv.style.top = "20px";
+  alertDiv.style.left = "50%";
+  alertDiv.style.transform = "translateX(-50%)";
+  alertDiv.style.background = "#ff4d4d";
+  alertDiv.style.color = "white";
+  alertDiv.style.padding = "10px 20px";
+  alertDiv.style.borderRadius = "5px";
+  alertDiv.style.fontSize = "16px";
+  alertDiv.style.zIndex = "9999";
+  document.body.appendChild(alertDiv);
+  setTimeout(() => alertDiv.remove(), 5000);
+  return; // stop PDF generation
+}
+
+
+if (!data["Order ID"]) {
+      const now = new Date();
+      const pad = n => n.toString().padStart(2, '0');
+      data["Order ID"] = `ORD${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+    }
+
+    const nameLine = `${data["Name"] || ""}`;
+    const mobileLine = `${data["Mobile"] || ""}${data["Alt Mobile"] ? " / " + data["Alt Mobile"] : ""}`;
+    const addressLine = `${data["Address"] || ""}, ${data["Landmark"] || ""}  ${data["Post office"] || ""}  ${data["District/City"] || ""}  ${data["Pincode"] || ""}  ${data["State"] || ""}`;
+    const metaLine = `Date: ${today}      Order ID: ${data["Order ID"] || ""}`;
+    const productLine = `Product: ${data["Product"] || ""}   Variant: ${data["Variant"] || ""}`;
+    const priceLine = `Base Price: ${data["Base Price"] || ""}   Discount Applied: ${data["Discount Applied"] || ""}`;
+    const paidLine = `Amount paid: ${data["Amount paid"] || ""}`;
+
+    doc.setFont("helvetica");
+    doc.setDrawColor(0);
+    const bgColors = ["#f8f9fa", "#e6f7ff", "#fffbe6", "#e8f5e9", "#f3e5f5", "#fff0f5", "#f0f4c3", "#e1f5fe"];
+    const bgColor = bgColors[idx % bgColors.length];
+    const [r, g, b] = bgColor.match(/\w\w/g).map(x => parseInt(x, 16));
+    doc.setFillColor(r, g, b);
+    doc.setLineWidth(0.5);
+    doc.roundedRect(x + 2, y + 2, labelWidth - 4, labelHeight - 4, 2, 2, 'FD');
+    doc.setLineWidth(0.2);
+    doc.roundedRect(x + 2.6, y + 2.6, labelWidth - 5.2, labelHeight - 5.2, 2, 2);
+
+    let cursorY = y + 5;
+    doc.setFontSize(11);
+    doc.setTextColor(0, 0, 0);
+    doc.text("To,", x + 4, cursorY + 2);
+    cursorY += 4;
+    doc.setFont(undefined, "bold");
+    doc.setFontSize(15);
+    doc.setTextColor(0, 0, 139);
+    doc.text(nameLine.toUpperCase(), x + labelWidth - 4, cursorY, { align: "right" });
+    doc.setFontSize(12);
+    doc.setFont(undefined, "normal");
+    cursorY += 4;
+    doc.setFont(undefined, "bold");
+    doc.setFontSize(12);
+    doc.setTextColor(0, 0, 139);
+    doc.text(mobileLine.toUpperCase(), x + labelWidth - 4, cursorY, { align: "right" });
+    cursorY += 5;
+    doc.setFontSize(11);  // Address font size increase
+    doc.setFont(undefined, "normal");
+    const addressLines = doc.splitTextToSize(addressLine, labelWidth - 20);  // Wider address
+    doc.text(addressLines, x + labelWidth - 4, cursorY, { align: "right" });
+    cursorY += addressLines.length * 4;
+
+    const bottomText = `From: GAMES PLANET MOB: 7983624797\nGURUDWARA ROAD NEAR JK'STYRE\nCIVIL LINES RAMPUR U.P 244901`;
+    const bottomWrapped = doc.splitTextToSize(bottomText, labelWidth - 8);
+    const bottomHeight = bottomWrapped.length * 3;
+    const metaHeight = 9;
+    const fromY = y + labelHeight - 10 - (bottomHeight + metaHeight);
+    const separatorAboveDateY = fromY - 3;
+    doc.setDrawColor(0);
+    doc.line(x + 4, separatorAboveDateY, x + labelWidth - 4, separatorAboveDateY);
+
+    doc.setFontSize(8);
+    doc.setFont(undefined, "bold");
+    doc.setTextColor(139, 0, 0);
+    doc.text(metaLine, x + 4, fromY);
+    doc.setTextColor(165, 42, 42);
+    doc.text(productLine, x + 4, fromY + 3);
+    doc.text(priceLine, x + 4, fromY + 6);
+    doc.text(paidLine, x + 4, fromY + 9);
+
+    const separatorY = fromY + 11.5;
+    doc.line(x + 4, separatorY, x + labelWidth - 4, separatorY);
+    const finalFromY = separatorY + 1.5;
+    doc.setFont(undefined, "bold");
+    doc.setTextColor(0, 0, 139);
+    doc.text(bottomWrapped, x + labelWidth - 4, finalFromY + 2, { align: "right" });
+    doc.setFont(undefined, "normal");
+    doc.setTextColor(0, 0, 0);
+  });
+
+  if (mode === 'print') {
+    const blobURL = doc.output('bloburl');
+    const win = window.open(blobURL, '_blank');
+    if (win) {
+      win.onload = () => {
+        win.focus();
+        win.print();
+      };
+    }
+  } else {
+    doc.save("labels.pdf");
+  }
+}
+</script>
+</body>
+</html>
