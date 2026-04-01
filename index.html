@@ -140,17 +140,17 @@ function generatePDF(mode = 'save') {
 
     const lines = input.split(/\n|\r/);
     const data = {};
+    let currentKey = "";
     lines.forEach((line, i) => {
       const parts = line.split(":");
       if (parts.length > 1) {
-        const key = parts[0].trim();
+        currentKey = parts[0].trim().toLowerCase();
         let value = parts.slice(1).join(":").trim();
-        if (!["Product", "Variant", "Base Price", "Discount Applied", "Amount paid"].includes(key)) {
-          value = capitalizeWords(value);
-        }
-        data[key] = value;
-      } else if (i === 0 && !data["Name"]) {
-        data["Name"] = line.trim();
+        data[currentKey] = value;
+      } else if (currentKey && line.trim() !== "") {
+        data[currentKey] = (data[currentKey] + " " + line.trim())
+          .replace(/\s+/g, " ")
+          .trim();
       }
     });
 
@@ -188,6 +188,11 @@ data["Base Price"]   = getField(["Base Price", "Price"]);
 data["Discount Applied"] = getField(["Discount", "Discount Applied"]);
 data["Order ID"]     = getField(["Order ID", "OrderId", "Order Id"]);
 data["Name"]         = getField(["Name", "Customer Name", "Customer"]);
+
+data["Landmark"]     = getField(["Landmark", "Land mark", "Nearby", "Near"]);
+data["Post office"]  = getField(["Post Office", "Post office", "PO"]);
+data["State"]        = getField(["State"]);
+
 
 // Append GB to Variant if available
 if (normalizedData["gb"]) {
@@ -288,9 +293,18 @@ if (!data["Order ID"]) {
     doc.setTextColor(139, 0, 0);
     doc.text(metaLine, x + 4, fromY);
     doc.setTextColor(165, 42, 42);
-    doc.text(productLine, x + 4, fromY + 3);
-    doc.text(priceLine, x + 4, fromY + 6);
-    doc.text(paidLine, x + 4, fromY + 9);
+    let currentY = fromY + 3;
+
+    const productWrapped = doc.splitTextToSize(productLine, labelWidth - 8);
+    doc.text(productWrapped, x + 4, currentY);
+    currentY += productWrapped.length * 3;
+
+    const priceWrapped = doc.splitTextToSize(priceLine, labelWidth - 8);
+    doc.text(priceWrapped, x + 4, currentY);
+    currentY += priceWrapped.length * 3;
+
+    const paidWrapped = doc.splitTextToSize(paidLine, labelWidth - 8);
+    doc.text(paidWrapped, x + 4, currentY);
 
     const separatorY = fromY + 11.5;
     doc.line(x + 4, separatorY, x + labelWidth - 4, separatorY);
