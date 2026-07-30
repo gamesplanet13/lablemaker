@@ -120,6 +120,47 @@ function capitalizeWords(str) {
   return str.replace(/\w\S*/g, (txt) => txt.charAt(0).toUpperCase() + txt.substr(1).toLowerCase());
 }
 
+function cleanJoin(parts, separator = ", ") {
+  return parts.map(value => (value || "").trim()).filter(Boolean).join(separator);
+}
+
+function drawFittedText(doc, text, x, y, maxWidth, maxHeight, options = {}) {
+  const {
+    startSize = 9,
+    minSize = 6.2,
+    lineHeightFactor = 1.08,
+    align = "left",
+    fontStyle = "normal",
+    color = [0, 0, 0]
+  } = options;
+
+  doc.setFont("helvetica", fontStyle);
+  doc.setTextColor(...color);
+  let size = startSize;
+  let lines = [];
+  let lineHeight = 0;
+
+  while (size >= minSize) {
+    doc.setFontSize(size);
+    lines = doc.splitTextToSize(String(text || ""), maxWidth);
+    lineHeight = size * 0.3528 * lineHeightFactor;
+    if (lines.length * lineHeight <= maxHeight) break;
+    size -= 0.35;
+  }
+
+  doc.setFontSize(Math.max(size, minSize));
+  const maxLines = Math.max(1, Math.floor(maxHeight / Math.max(lineHeight, 1)));
+  if (lines.length > maxLines) {
+    lines = lines.slice(0, maxLines);
+    let last = lines[maxLines - 1];
+    while (last.length && doc.getTextWidth(last + "…") > maxWidth) last = last.slice(0, -1);
+    lines[maxLines - 1] = last.trimEnd() + "…";
+  }
+
+  doc.text(lines, x, y, { align, lineHeightFactor });
+  return { lines, size, height: lines.length * lineHeight };
+}
+
 function generatePDF(mode = 'save') {
   const inputs = Array.from(document.querySelectorAll(".label-input"));
   const filledInputs = inputs.map(i => i.value.trim()).filter(Boolean);
@@ -239,79 +280,122 @@ if (!data["Order ID"]) {
 
     const nameLine = `${data["Name"] || ""}`;
     const mobileLine = `${data["Mobile"] || ""}${data["Alt Mobile"] ? " / " + data["Alt Mobile"] : ""}`;
-    const addressLine = `${data["Address"] || ""}, ${data["Landmark"] || ""}  ${data["Post office"] || ""}  ${data["District/City"] || ""}  ${data["Pincode"] || ""}  ${data["State"] || ""}`;
-    const metaLine = `Date: ${today}      Order ID: ${data["Order ID"] || ""}`;
-    const productLine = `Product: ${data["Product"] || ""}   Variant: ${data["Variant"] || ""}`;
-    const priceLine = `Base Price: ${data["Base Price"] || ""}   Discount Applied: ${data["Discount Applied"] || ""}`;
-    const paidLine = `Amount paid: ${data["Amount paid"] || ""}`;
+    const addressLine = cleanJoin([
+      data["Address"],
+      data["Landmark"] ? `Near ${data["Landmark"]}` : "",
+      data["Post office"] ? `PO ${data["Post office"]}` : "",
+      data["District/City"],
+      data["Pincode"],
+      data["State"]
+    ]);
 
     doc.setFont("helvetica");
-    doc.setDrawColor(0);
-    const bgColors = ["#f8f9fa", "#e6f7ff", "#fffbe6", "#e8f5e9", "#f3e5f5", "#fff0f5", "#f0f4c3", "#e1f5fe"];
-    const bgColor = bgColors[idx % bgColors.length];
-    const [r, g, b] = bgColor.match(/\w\w/g).map(x => parseInt(x, 16));
-    doc.setFillColor(r, g, b);
-    doc.setLineWidth(0.5);
-    doc.roundedRect(x + 2, y + 2, labelWidth - 4, labelHeight - 4, 2, 2, 'FD');
-    doc.setLineWidth(0.2);
-    doc.roundedRect(x + 2.6, y + 2.6, labelWidth - 5.2, labelHeight - 5.2, 2, 2);
+    const left = x + 3.5;
+    const right = x + labelWidth - 3.5;
+    const innerWidth = labelWidth - 7;
+    const top = y + 3.5;
+    const bottom = y + labelHeight - 3.5;
 
-    let cursorY = y + 5;
-    doc.setFontSize(11);
-    doc.setTextColor(0, 0, 0);
-    doc.text("To,", x + 4, cursorY + 2);
-    cursorY += 4;
-    doc.setFont(undefined, "bold");
-    doc.setFontSize(15);
-    doc.setTextColor(0, 0, 139);
-    doc.text(nameLine.toUpperCase(), x + labelWidth - 4, cursorY, { align: "right" });
-    doc.setFontSize(12);
-    doc.setFont(undefined, "normal");
-    cursorY += 4;
-    doc.setFont(undefined, "bold");
-    doc.setFontSize(12);
-    doc.setTextColor(0, 0, 139);
-    doc.text(mobileLine.toUpperCase(), x + labelWidth - 4, cursorY, { align: "right" });
-    cursorY += 5;
-    doc.setFontSize(11);  // Address font size increase
-    doc.setFont(undefined, "normal");
-    const addressLines = doc.splitTextToSize(addressLine, labelWidth - 20);  // Wider address
-    doc.text(addressLines, x + labelWidth - 4, cursorY, { align: "right" });
-    cursorY += addressLines.length * 4;
+    doc.setFillColor(255, 255, 255);
+    doc.setDrawColor(38, 50, 56);
+    doc.setLineWidth(0.45);
+    doc.roundedRect(x + 2, y + 2, labelWidth - 4, labelHeight - 4, 2, 2, "FD");
+    doc.setDrawColor(176, 190, 197);
+    doc.setLineWidth(0.18);
+    doc.roundedRect(x + 2.7, y + 2.7, labelWidth - 5.4, labelHeight - 5.4, 1.4, 1.4);
 
-    const bottomText = `From: GAMES PLANET MOB: 7983624797\nGURUDWARA ROAD NEAR JK'STYRE\nCIVIL LINES RAMPUR U.P 244901`;
-    const bottomWrapped = doc.splitTextToSize(bottomText, labelWidth - 8);
-    const bottomHeight = bottomWrapped.length * 3;
-    const metaHeight = 9;
-    const fromY = y + labelHeight - 10 - (bottomHeight + metaHeight);
-    const separatorAboveDateY = fromY - 3;
-    doc.setDrawColor(0);
-    doc.line(x + 4, separatorAboveDateY, x + labelWidth - 4, separatorAboveDateY);
+    doc.setFillColor(246, 250, 253);
+    doc.setDrawColor(207, 216, 220);
+    doc.roundedRect(left, top, innerWidth, 11.4, 1, 1, "FD");
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(6.4);
+    doc.setTextColor(69, 90, 100);
+    doc.text("DELIVER", left + 1.5, top + 3.2);
+    doc.setFontSize(11.5);
+    doc.setTextColor(14, 55, 92);
+    doc.text("TO", left + 1.5, top + 8.4);
 
-    doc.setFontSize(8);
-    doc.setFont(undefined, "bold");
-    doc.setTextColor(139, 0, 0);
-    doc.text(metaLine, x + 4, fromY);
-    doc.setTextColor(165, 42, 42);
-    let currentY = fromY + 3;
+    // Three clearly separated dark colours: name, mobile and address.
+    drawFittedText(doc, nameLine.toUpperCase(), right - 1.2, top + 8.1, innerWidth - 17, 8.3, {
+      startSize: 20.5, minSize: 12.0, align: "right", fontStyle: "bold", color: [14, 55, 92]
+    });
 
-    const productWrapped = doc.splitTextToSize(productLine, labelWidth - 8);
-    doc.text(productWrapped, x + 4, currentY);
-    currentY += productWrapped.length * 3;
+    doc.setFillColor(251, 247, 252);
+    doc.setDrawColor(232, 219, 235);
+    doc.roundedRect(left, top + 12.3, innerWidth, 8.6, 0.9, 0.9, "FD");
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(6.4);
+    doc.setTextColor(91, 33, 105);
+    doc.text("CONTACT", left + 1.5, top + 17.4);
+    drawFittedText(doc, mobileLine, right - 1.2, top + 18.3, innerWidth - 13, 6.5, {
+      startSize: 17.2, minSize: 10.0, align: "right", fontStyle: "bold", color: [91, 33, 105]
+    });
 
-    const priceWrapped = doc.splitTextToSize(priceLine, labelWidth - 8);
-    doc.text(priceWrapped, x + 4, currentY);
-    currentY += priceWrapped.length * 3;
+    doc.setFillColor(249, 252, 251);
+    doc.setDrawColor(224, 237, 234);
+    doc.roundedRect(left, top + 22.0, innerWidth, 23.1, 0.9, 0.9, "FD");
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(6.8);
+    doc.setTextColor(76, 110, 104);
+    doc.text("ADDRESS", left + 1.5, top + 25.0);
+    drawFittedText(doc, addressLine, right - 1.2, top + 29.2, innerWidth - 3, 15.0, {
+      startSize: 14.5, minSize: 8.0, align: "right", fontStyle: "bold", color: [38, 73, 67]
+    });
 
-    const paidWrapped = doc.splitTextToSize(paidLine, labelWidth - 8);
-    doc.text(paidWrapped, x + 4, currentY);
+    // Strict fixed rows: no detail can cross the order-panel boundary.
+    const orderTop = top + 46.2;
+    const orderBottom = bottom - 11.7;
+    doc.setFillColor(252, 252, 252);
+    doc.setDrawColor(210, 214, 216);
+    doc.roundedRect(left, orderTop, innerWidth, orderBottom - orderTop, 1.2, 1.2, "FD");
+    doc.setFillColor(247, 249, 250);
+    doc.roundedRect(left, orderTop, innerWidth, 2.2, 0.8, 0.8, "F");
+    doc.rect(left, orderTop + 1.1, innerWidth, 1.1, "F");
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(4.8);
+    doc.setTextColor(55, 71, 79);
+    doc.text("ORDER DETAILS", left + 1.2, orderTop + 1.55);
 
-    const separatorY = fromY + 11.5;
-    doc.line(x + 4, separatorY, x + labelWidth - 4, separatorY);
-    const finalFromY = separatorY + 1.5;
-    doc.setFont(undefined, "bold");
-    doc.setTextColor(0, 0, 139);
-    doc.text(bottomWrapped, x + labelWidth - 4, finalFromY + 2, { align: "right" });
+    const metaText = `DATE: ${today}   |   ORDER ID: ${data["Order ID"] || ""}`;
+    const productText = cleanJoin([
+      `PRODUCT: ${data["Product"] || ""}`,
+      data["Variant"] ? `VARIANT: ${data["Variant"]}` : ""
+    ], "   |   ");
+    const priceText = cleanJoin([
+      `AMOUNT PAID: ${data["Amount paid"] || ""}`,
+      data["Base Price"] ? `BASE PRICE: ${data["Base Price"]}` : "",
+      data["Discount Applied"] ? `DISCOUNT: ${data["Discount Applied"]}` : ""
+    ], "   |   ");
+
+    const metaTop = orderTop + 2.3;
+    const productTop = orderTop + 4.5;
+    const priceTop = orderTop + 7.0;
+    doc.setDrawColor(230, 232, 234);
+    doc.line(left + 1.2, productTop - 0.7, right - 1.2, productTop - 0.7);
+    doc.line(left + 1.2, priceTop - 0.7, right - 1.2, priceTop - 0.7);
+
+    drawFittedText(doc, metaText, left + 1.2, metaTop + 1.35, innerWidth - 2.4, 1.9, {
+      startSize: 5.2, minSize: 4.2, fontStyle: "bold", color: [55, 71, 79]
+    });
+    drawFittedText(doc, productText, left + 1.2, productTop + 1.3, innerWidth - 2.4, 2.15, {
+      startSize: 5.0, minSize: 4.0, fontStyle: "bold", color: [96, 52, 52]
+    });
+    drawFittedText(doc, priceText, left + 1.2, priceTop + 1.25, innerWidth - 2.4, Math.max(1.5, orderBottom - priceTop - 0.35), {
+      startSize: 4.9, minSize: 3.9, fontStyle: "bold", color: [96, 52, 52]
+    });
+
+    // Sender area remains fixed at the bottom and cannot be displaced by order data.
+    doc.setFillColor(247, 250, 252);
+    doc.setDrawColor(218, 228, 235);
+    doc.roundedRect(left, bottom - 10.2, innerWidth, 10.2, 1.0, 1.0, "FD");
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(7.3);
+    doc.setTextColor(55, 75, 92);
+    doc.text("FROM: GAMES PLANET   MOB: 7983624797", right - 0.6, bottom - 7.35, { align: "right" });
+    doc.setFontSize(6.9);
+    doc.setTextColor(76, 100, 96);
+    doc.text("GURUDWARA ROAD NEAR JK'S TYRE", right - 0.6, bottom - 4.65, { align: "right" });
+    doc.text("CIVIL LINES RAMPUR U.P. 244901", right - 0.6, bottom - 2.0, { align: "right" });
     doc.setFont(undefined, "normal");
     doc.setTextColor(0, 0, 0);
   });
